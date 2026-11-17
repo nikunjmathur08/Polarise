@@ -12,14 +12,16 @@ import AppKit
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var statusItem: NSStatusItem!
     private var popover: NSPopover!
-    let overlayManager = OverlayManager()
+    let overlaySettings = OverlaySettings()
+    lazy var overlayManager = OverlayManager(settings: overlaySettings)
     
     func applicationDidFinishLaunching(_ notification: Notification) {
         let contentView = ContentView()
             .environmentObject(overlayManager)
+            .environmentObject(overlaySettings)
         
         popover = NSPopover()
-        popover.contentSize = NSSize(width: 280, height: 160)
+        popover.contentSize = NSSize(width: 300, height: 290)
         popover.behavior = .transient
         popover.contentViewController = NSHostingController(rootView: contentView)
         

@@ -29,8 +29,10 @@ final class OverlayManager: ObservableObject {
     private var isCurrentlyHidden: Bool = false
     private var pollTimer: Timer?
     private var spaceObserver: Any?
+    let settings: OverlaySettings
     
-    init() {
+    init(settings: OverlaySettings) {
+        self.settings = settings
         if let frontApp = NSWorkspace.shared.frontmostApplication,
            frontApp.bundleIdentifier != Bundle.main.bundleIdentifier {
             lastExternalApp = frontApp
@@ -103,7 +105,7 @@ final class OverlayManager: ObservableObject {
                 continue
             }
             let displayID = CGDirectDisplayID(screenNumber.uint32Value)
-            let window = OverlayWindow(screen: screen)
+            let window = OverlayWindow(screen: screen, settings: settings)
             window.setFrame(screen.frame, display: true)
             window.orderFront(nil)
             windows[displayID] = window
@@ -179,6 +181,7 @@ final class OverlayManager: ObservableObject {
         
         for (_, overlayWindow) in windows {
             overlayWindow.order(.below, relativeTo: windowNumber)
+            overlayWindow.applyAllSettings(forceBlur: true)
         }
     }
     
