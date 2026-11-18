@@ -17,6 +17,8 @@ final class OverlayWindow: NSWindow {
     private let grainView = NSView()
     private var fallbackBlurView: NSVisualEffectView?
     private var lastAppliedRadius: Int = -1
+    private var visibilityAnimationGeneration = 0
+    private var gradientMaskLayer: CAGradientLayer?
     
     init(screen: NSScreen, settings: OverlaySettings) {
         self.settings = settings
@@ -75,20 +77,32 @@ final class OverlayWindow: NSWindow {
     
     private func bindSettings() {
         settings.$blurRadius
-            .throttle(for: .milliseconds(16), scheduler: RunLoop.main, latest: true)
+            .throttle(for: .milliseconds(16), scheduler: DispatchQueue.main, latest: true)
             .sink { [weak self] radius in
                 self?.applyBlurRadius(Int(radius.rounded()))
             }
             .store(in: &cancellables)
         
         Publishers.CombineLatest(settings.$tintColor, settings.$tintOpacity)
+            .receive(on: DispatchQueue.main)
             .sink { [weak self] _, _ in
                 self?.applyTint()
             }
             .store(in: &cancellables)
+
         settings.$grainOpacity
+            .receive(on: DispatchQueue.main)
             .sink { [weak self] opacity in
                 self?.applyGrainOpacity(opacity)
+            }
+            .store(in: &cancellables)
+
+        // Skip initial value — preset mask is applied synchronously in applyAllSettings during init.
+        settings.$currentPreset
+            .dropFirst()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] preset in
+                self?.applyPresetMask(preset)
             }
             .store(in: &cancellables)
     }
@@ -97,6 +111,7 @@ final class OverlayWindow: NSWindow {
         applyBlurRadius(Int(settings.blurRadius.rounded()), force: forceBlur)
         applyTint()
         applyGrainOpacity(settings.grainOpacity)
+        applyPresetMask(settings.currentPreset)
     }
     
     private func applyBlurRadius(_ radius: Int, force: Bool = false) {
@@ -109,7 +124,79 @@ final class OverlayWindow: NSWindow {
             fallbackBlurView?.alphaValue = radius > 0 ? 1.0 : 0.0
         }
     }
+
+    func showBelow(windowNumber: Int) {
+        visibilityAnimationGeneration += 1
+
+        // Always start from zero so the fade-in plays every time
+        alphaValue = 0
+        orderFront(nil)
+        order(.below, relativeTo: windowNumber)
+
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.24
+            context.timingFunction = CAMediaTimingFunction(name: .easeOut)
+            animator().alphaValue = 1
+        }
+    }
+
+    func hideWithFade(completion: (() -> Void)? = nil) {
+        guard isVisible else {
+            completion?()
+            return
+        }
+
+        visibilityAnimationGeneration += 1
+        let animationGeneration = visibilityAnimationGeneration
+
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.18
+            context.timingFunction = CAMediaTimingFunction(name: .easeIn)
+            animator().alphaValue = 0
+        } completionHandler: { [weak self] in
+            guard let self, self.visibilityAnimationGeneration == animationGeneration else { return }
+            self.orderOut(nil)
+            completion?()
+        }
+    }
     
+    private func applyPresetMask(_ preset: PolarisePreset) {
+        switch preset {
+        case .medium: applyGradientMask()
+        case .deep:   removeGradientMask()
+        }
+    }
+
+    /// Applies a gradient mask that keeps the blur fully opaque at the bottom
+    /// and fades it progressively to transparent toward the menu bar.
+    ///
+    /// CALayer mask convention: black (alpha = 1) → content visible,
+    ///                          clear (alpha = 0) → content hidden.
+    ///
+    /// CAGradientLayer unit coordinates on a non-flipped NSView layer:
+    ///   (0.5, 0) = bottom centre,  (0.5, 1) = top centre.
+    private func applyGradientMask() {
+        let mask = CAGradientLayer()
+
+        // Three stops: solid for the bottom ~65 %, then a smooth ease-out
+        // fade through the top 35 % toward the menu bar.
+        mask.colors    = [NSColor.black.cgColor,
+                          NSColor.black.cgColor,
+                          NSColor.clear.cgColor]
+        mask.locations = [0.0, 0.65, 1.0]
+        mask.startPoint = CGPoint(x: 0.5, y: 0.0)  // bottom
+        mask.endPoint   = CGPoint(x: 0.5, y: 1.0)  // top (menu bar)
+        mask.frame = rootView.bounds
+
+        rootView.layer?.mask = mask
+        gradientMaskLayer = mask
+    }
+
+    private func removeGradientMask() {
+        rootView.layer?.mask = nil
+        gradientMaskLayer = nil
+    }
+
     private func applyTint() {
         CATransaction.begin()
         CATransaction.setDisableActions(true)

@@ -16,13 +16,13 @@ final class OverlayManager: ObservableObject {
             if isOverlayEnabled {
                 rebuildWindows()
             } else {
-                tearDownWindows()
+                tearDownWindowsAnimated()
             }
         }
     }
     
     private var windows: [CGDirectDisplayID: OverlayWindow] = [:]
-    private var lastExternalApp: NSRunningApplication?
+    @Published private(set) var lastExternalApp: NSRunningApplication?
     private var screenObserver: Any?
     private var appActivationObserver: Any?
     private var lastTargetWindowNumber: Int?
@@ -107,7 +107,6 @@ final class OverlayManager: ObservableObject {
             let displayID = CGDirectDisplayID(screenNumber.uint32Value)
             let window = OverlayWindow(screen: screen, settings: settings)
             window.setFrame(screen.frame, display: true)
-            window.orderFront(nil)
             windows[displayID] = window
         }
         
@@ -125,6 +124,24 @@ final class OverlayManager: ObservableObject {
             window.close()
         }
         windows.removeAll()
+    }
+
+    /// Fades all overlay windows out, then tears them down.
+    func tearDownWindowsAnimated() {
+        stopPollTimer()
+        isCurrentlyHidden = true
+
+        let captured = windows
+        windows.removeAll()
+
+        let group = DispatchGroup()
+        for (_, window) in captured {
+            group.enter()
+            window.hideWithFade {
+                window.close()
+                group.leave()
+            }
+        }
     }
     
     private func startPollTimer() {
@@ -167,6 +184,12 @@ final class OverlayManager: ObservableObject {
             return
         }
         
+        if let bundleID = activeApp.bundleIdentifier,
+           settings.ignoredBundleIDs.contains(bundleID) {
+            hideOverlays()
+            return
+        }
+        
         guard let windowNumber = frontmostWindowNumber(for: activeApp.processIdentifier, in: windowInfoList) else {
             hideOverlays()
             return
@@ -180,7 +203,7 @@ final class OverlayManager: ObservableObject {
         isCurrentlyHidden = false
         
         for (_, overlayWindow) in windows {
-            overlayWindow.order(.below, relativeTo: windowNumber)
+            overlayWindow.showBelow(windowNumber: windowNumber)
             overlayWindow.applyAllSettings(forceBlur: true)
         }
     }
@@ -228,7 +251,7 @@ final class OverlayManager: ObservableObject {
     private func hideOverlays() {
         guard !isCurrentlyHidden else { return }
         for (_, window) in windows {
-            window.orderOut(nil)
+            window.hideWithFade(completion: nil)
         }
         isCurrentlyHidden = true
         lastTargetWindowNumber = nil
