@@ -124,3 +124,45 @@ private final class GradientBackdropEffectView: NSVisualEffectView {
     }
 }
 
+private final class MaskedHostingView<Content: View>: NSHostingView<Content> {
+    private let fadeMask = CAGradientLayer()
+    
+    required init(rootView: Content) {
+        super.init(rootView: rootView)
+        wantsLayer = true
+        layer?.mask = fadeMask
+    }
+    
+    @MainActor @preconcurrency required init?(coder: NSCoder) {
+        fatalError("init(coder): has not been implemented")
+    }
+    
+    override func layout() {
+        super.layout()
+        updateFadeMask()
+    }
+    
+    private func updateFadeMask() {
+        let h = bounds.height
+        guard h > 1 else { return }
+        
+        let screen = window?.screen ?? NSScreen.main
+        let menuBar = screen.map { $0.frame.maxY - $0.visibleFrame.maxY } ?? 24
+        let f = min(0.5, (menuBar + 36) / h)
+        
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        fadeMask.frame = bounds
+        fadeMask.startPoint = CGPoint(x: 0.5, y: 1)
+        fadeMask.endPoint = CGPoint(x: 0.5, y: 0)
+        fadeMask.colors = [
+            NSColor.black.withAlphaComponent(0.0).cgColor,
+            NSColor.black.withAlphaComponent(0.10).cgColor,
+            NSColor.black.withAlphaComponent(0.45).cgColor,
+            NSColor.black.cgColor,
+            NSColor.black.cgColor
+        ]
+        fadeMask.locations = [0, NSNumber(value: f * 0.45), NSNumber(value: f * 0.75), NSNumber(value: f), 1]
+        CATransaction.commit()
+    }
+}

@@ -68,7 +68,6 @@ struct ContentView: View {
                                     removal: .opacity.combined(with: .scale(scale: 0.97)).combined(with: .move(edge: .top))
                                 ))
                         }
-                        ignoredAppsCard
                         if showKeyboardShortcuts {
                             KeyboardShortcutsCard {
                                 withAnimation(.spring(response: 0.58, dampingFraction: 0.84)) {
@@ -86,6 +85,7 @@ struct ContentView: View {
                                     removal: .opacity.combined(with: .scale(scale: 0.97)).combined(with: .move(edge: .top))
                                 ))
                         }
+                        ignoredAppsCard
                         extraSettingsCard
                     }
                 }
@@ -470,7 +470,7 @@ struct ContentView: View {
         } label: {
             HStack(spacing: 14) {
                 HStack(spacing: 14) {
-                    Image(systemName: "keyboard")
+                    Image(systemName: "command")
                         .font(.system(size: 24, weight: .medium))
                         .frame(width: 48, height: 48)
                     Text("Keyboard Shortcuts").font(.headline.weight(.semibold))
