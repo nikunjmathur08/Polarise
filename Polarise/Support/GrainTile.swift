@@ -10,9 +10,10 @@ import AppKit
 
 enum GrainTile {
     static let patternColor: NSColor = {
-        // Render at 2× so each noise pixel maps to one physical pixel on Retina.
-        let scale = Int(NSScreen.main?.backingScaleFactor ?? 2)
-        let logicalSize = 512
+        // Render at screen backing scale so each noise pixel is exactly
+        // one physical pixel on Retina — sharp, film-grain-like particles.
+        let scale      = Int(NSScreen.main?.backingScaleFactor ?? 2)
+        let logicalSize  = 512
         let physicalSize = logicalSize * scale
         let image = makeNoiseTile(physicalSize: physicalSize, logicalSize: logicalSize)
         return NSColor(patternImage: image)
@@ -21,21 +22,17 @@ enum GrainTile {
     private static func makeNoiseTile(physicalSize: Int, logicalSize: Int) -> NSImage {
         let pixelCount = physicalSize * physicalSize
 
-        // Noise is centred on mid-grey (128) with a tight ±20 spread.
-        // This gives fine, almost-invisible grain instead of harsh black/white speckles.
-        let centre: Int = 128
-        let spread: Int = 20
-
+        // Full 0–255 luminance range: gives visible dark → bright grain variance.
+        // The layer's opacity (grainOpacity setting) controls overall intensity.
+        // Using the full range lets individual grain particles be truly distinct,
+        // matching the analog film-grain look (high contrast between neighbours).
         var pixels = [UInt8](repeating: 0, count: pixelCount)
         var seed: UInt64 = 0x9E3779B97F4A7C15
         for i in 0..<pixelCount {
             seed ^= seed >> 12
             seed ^= seed << 25
             seed ^= seed >> 27
-            // Map the full 0–255 raw value into [centre-spread … centre+spread]
-            let raw = Int((seed &* 0x2545F4914F6CDD1D) >> 56)   // 0–255
-            let mapped = centre - spread + (raw * (spread * 2)) / 255
-            pixels[i] = UInt8(clamping: mapped)
+            pixels[i] = UInt8((seed &* 0x2545F4914F6CDD1D) >> 56)
         }
 
         let colorSpace = CGColorSpaceCreateDeviceGray()
@@ -43,7 +40,7 @@ enum GrainTile {
 
         guard let provider = CGDataProvider(data: data as CFData),
               let cgImage = CGImage(
-                width: physicalSize,
+                width:  physicalSize,
                 height: physicalSize,
                 bitsPerComponent: 8,
                 bitsPerPixel: 8,
@@ -52,14 +49,14 @@ enum GrainTile {
                 bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.none.rawValue),
                 provider: provider,
                 decode: nil,
-                shouldInterpolate: true,   // soft edges between noise pixels
+                shouldInterpolate: false,   // keep each grain pixel sharp, no anti-aliasing
                 intent: .defaultIntent
               )
         else {
             return NSImage(size: NSSize(width: logicalSize, height: logicalSize))
         }
 
-        // Set logical size so AppKit tiles at the correct density
+        // Logical size tells AppKit how to tile at the correct screen density
         return NSImage(cgImage: cgImage, size: NSSize(width: logicalSize, height: logicalSize))
     }
 }

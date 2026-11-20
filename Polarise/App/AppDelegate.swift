@@ -37,6 +37,44 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             button.target = self
             button.sendAction(on: [.leftMouseUp, .rightMouseUp])
         }
+        configureHotkeys()
+    }
+
+    func flashStatusItem() {
+        guard let button = statusItem.button else { return }
+        button.contentTintColor = .systemYellow
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.18) { [weak button] in
+            button?.contentTintColor = nil
+        }
+    }
+
+    private func configureHotkeys() {
+        let manager = HotkeyManager.shared
+        manager.handlers = [
+            .toggleOverlay: { [weak self] in self?.overlayManager.isOverlayEnabled.toggle() },
+            .ignoreCurrentApp: { [weak self] in
+                guard let self, let app = NSWorkspace.shared.frontmostApplication,
+                      app.bundleIdentifier != Bundle.main.bundleIdentifier,
+                      let bundleID = app.bundleIdentifier else { return }
+                self.overlaySettings.toggleIgnored(bundleID: bundleID)
+                self.overlayManager.repositionOverlaysBelowActiveWindow(force: true)
+            },
+            .blurUp: { [weak self] in
+                guard let self else { return }
+                self.overlaySettings.blurRadius = min(100, self.overlaySettings.blurRadius + 10)
+            },
+            .blurDown: { [weak self] in
+                guard let self else { return }
+                self.overlaySettings.blurRadius = max(0, self.overlaySettings.blurRadius - 10)
+            },
+            .toggleAppFocus: { [weak self] in
+                guard let self else { return }
+                self.overlaySettings.appWideFocus.toggle()
+                self.overlayManager.repositionOverlaysBelowActiveWindow(force: true)
+            }
+        ]
+        manager.loadAndRegisterAll()
+        NSLog("[Polarise] Loaded saved keyboard shortcuts")
     }
     
     @objc private func handleMouseClick(_ sender: NSStatusBarButton) {
@@ -59,12 +97,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     
     private func openPanel() {
         repositionPanel()
+        if let screen = statusItem.button?.window?.screen ?? NSScreen.main {
+            panel.showBackdrop(
+                from: panel.frame,
+                screenFrame: screen.frame,
+                menuBarBottom: screen.frame.maxY - screen.safeAreaInsets.top
+            )
+        }
         panel.makeKeyAndOrderFront(nil)
         startEventMonitors()
     }
     
     func closePanel() {
         panel.orderOut(nil)
+        panel.hideBackdrop()
         stopEventMonitors()
     }
     
@@ -78,12 +124,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let visible = screen.visibleFrame
         
         let edgeMargin: CGFloat = 10
-        let topGap: CGFloat = 6
+        let bottomMargin: CGFloat = 10
         
         let x = visible.maxX - size.width - edgeMargin
-        let y = visible.maxY - size.height - topGap
-        
-        panel.setFrame(NSRect(x: x, y: y, width: size.width, height: size.height), display: true)
+        let maxHeight = screen.frame.maxY - visible.minY - bottomMargin
+        let panelHeight = min(size.height, maxHeight)
+        let y = screen.frame.maxY - panelHeight
+
+        let targetFrame = NSRect(x: x, y: y, width: size.width, height: panelHeight)
+        if panel.isVisible {
+            panel.showBackdrop(
+                from: targetFrame,
+                screenFrame: screen.frame,
+                menuBarBottom: screen.frame.maxY - screen.safeAreaInsets.top
+            )
+        }
+        guard panel.isVisible else {
+            panel.setFrame(targetFrame, display: true)
+            return
+        }
+
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.58
+            context.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+            panel.animator().setFrame(targetFrame, display: true)
+        }
     }
     
     private func startEventMonitors() {

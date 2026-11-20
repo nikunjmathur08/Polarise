@@ -23,13 +23,13 @@ struct GlassCardModifier: ViewModifier {
             switch style {
             case .card(let radius):
                 content
-                    .glassEffect(.clear, in: .rect(cornerRadius: radius))
+                    .glassEffect(.regular, in: .rect(cornerRadius: radius))
             case .capsule:
                 content
-                    .glassEffect(.clear, in: .capsule)
+                    .glassEffect(.regular, in: .capsule)
             case .circle:
                 content
-                    .glassEffect(.clear, in: .circle)
+                    .glassEffect(.regular, in: .circle)
             }
         } else {
             switch style {

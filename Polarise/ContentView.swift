@@ -5,7 +5,10 @@
 //  Created by Nikunj Mathur on 15/11/26.
 //
 
+import AppKit
+import Carbon
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct TintSwatch: Identifiable {
     let id: Int
@@ -31,8 +34,9 @@ struct ContentView: View {
     @EnvironmentObject var overlayManager: OverlayManager
     @EnvironmentObject var settings: OverlaySettings
     @State private var showMoreSettings = false
+    @State private var showGestureSettings = false
+    @State private var showKeyboardShortcuts = false
     @State private var showTintPicker = false
-    @State private var isAppWideFocusEnabled = false
     @State private var isStageManagerBlurEnabled = false
     @State private var multiScreenMode = "Per screen"
     @State private var autoHideMode = "Off"
@@ -42,21 +46,63 @@ struct ContentView: View {
     
     var body: some View {
         glassContainer {
-            VStack(spacing: 18) {
-                topActionRow
-                modePillCard
-                slidersCard
-                appGroupsCard
-                
-                if showMoreSettings {
-                    extraSettingsCard
-                        .transition(.opacity.combined(with: .move(edge: .top)))
+            ScrollView(.vertical) {
+                VStack(spacing: 18) {
+                    topActionRow
+                    modePillCard
+                    slidersCard
+                    appGroupsCard
+                    moreSettingsPill
+
+                    if showMoreSettings {
+                        if showGestureSettings {
+                            gesturesPage
+                                .transition(.asymmetric(
+                                    insertion: .opacity.combined(with: .scale(scale: 0.97)).combined(with: .move(edge: .top)),
+                                    removal: .opacity.combined(with: .scale(scale: 0.985)).combined(with: .move(edge: .top))
+                                ))
+                        } else {
+                            gestureSettingsRow
+                                .transition(.asymmetric(
+                                    insertion: .opacity.combined(with: .scale(scale: 0.985)).combined(with: .move(edge: .top)),
+                                    removal: .opacity.combined(with: .scale(scale: 0.97)).combined(with: .move(edge: .top))
+                                ))
+                        }
+                        ignoredAppsCard
+                        if showKeyboardShortcuts {
+                            KeyboardShortcutsCard {
+                                withAnimation(.spring(response: 0.58, dampingFraction: 0.84)) {
+                                    showKeyboardShortcuts = false
+                                }
+                            }
+                            .transition(.asymmetric(
+                                insertion: .opacity.combined(with: .scale(scale: 0.97)).combined(with: .move(edge: .top)),
+                                removal: .opacity.combined(with: .scale(scale: 0.985)).combined(with: .move(edge: .top))
+                            ))
+                        } else {
+                            keyboardShortcutsRow
+                                .transition(.asymmetric(
+                                    insertion: .opacity.combined(with: .scale(scale: 0.985)).combined(with: .move(edge: .top)),
+                                    removal: .opacity.combined(with: .scale(scale: 0.97)).combined(with: .move(edge: .top))
+                                ))
+                        }
+                        extraSettingsCard
+                    }
                 }
-                
-                moreSettingsPill
+                .padding(.horizontal, 14)
+                .padding(.top, menuBarInset + 14)
+                .padding(.bottom, 28)
+                .frame(width: 320)
             }
-            .padding(14)
-            .frame(width: 320)
+            .scrollIndicators(.automatic)
+            .background(Color.black.opacity(0.001))
+            .contentShape(Rectangle())
+            .frame(maxHeight: maximumPanelHeight)
+        }
+        .animation(.spring(response: 0.58, dampingFraction: 0.84), value: showGestureSettings)
+        .animation(.spring(response: 0.58, dampingFraction: 0.84), value: showKeyboardShortcuts)
+        .onChange(of: showGestureSettings) { _, _ in
+            DispatchQueue.main.async { onResize() }
         }
         .onChange(of: showMoreSettings) { _, _  in
             DispatchQueue.main.async {
@@ -69,6 +115,16 @@ struct ContentView: View {
         }
     }
     
+    private var menuBarInset: CGFloat {
+        guard let screen = NSScreen.main else { return 24 }
+        return screen.frame.maxY - screen.visibleFrame.maxY
+    }
+    
+    private var maximumPanelHeight: CGFloat {
+        guard let screen = NSScreen.main else { return 800 }
+        return max(360, screen.frame.maxY - screen.visibleFrame.minY - 10)
+    }
+
     @ViewBuilder
     private func glassContainer<Content: View>(@ViewBuilder content: () -> Content) -> some View {
         if #available(macOS 26.0, *) {
@@ -254,7 +310,7 @@ struct ContentView: View {
                     .font(.headline.weight(.semibold))
                     .frame(width: 46, alignment: .leading)
                 
-                Slider(value: $settings.grainOpacity, in: 0...0.25, step: 0.025)
+                Slider(value: $settings.grainOpacity, in: 0...0.10, step: 0.01)
             }
         }
         .padding(.horizontal, 18)
@@ -326,34 +382,227 @@ struct ContentView: View {
     }
     
     private var appGroupsCard: some View {
-        VStack(alignment: .leading, spacing: 14) {
+        VStack(alignment: .leading, spacing: 12) {
             HStack {
-                Text("App Groups")
-                    .font(.headline.weight(.semibold))
-                
+                Text("App Groups").font(.headline.weight(.semibold))
                 Spacer()
-                Button {
-                    // Implement App Groups
+                Menu {
+                    let currentID = overlayManager.lastExternalApp?.bundleIdentifier
+                    ForEach(NSWorkspace.shared.runningApplications.filter {
+                        $0.activationPolicy == .regular && $0.bundleIdentifier != nil &&
+                        $0.bundleIdentifier != currentID && $0.bundleIdentifier != Bundle.main.bundleIdentifier
+                    }.sorted { ($0.localizedName ?? "") < ($1.localizedName ?? "") }, id: \.processIdentifier) { app in
+                        Button(app.localizedName ?? app.bundleIdentifier ?? "App") {
+                            guard let currentID, let peerID = app.bundleIdentifier else { return }
+                            if settings.appGroups.contains(where: { $0.contains(currentID) }) {
+                                settings.addBundleID(peerID, toGroupContaining: currentID)
+                            } else {
+                                settings.addGroup([currentID, peerID])
+                            }
+                            overlayManager.repositionOverlaysBelowActiveWindow(force: true)
+                        }
+                    }
                 } label: {
-                    Image(systemName: "plus")
-                        .font(.body.weight(.medium))
-                        .frame(width: 28, height: 28)
-                        .background(.white.opacity(0.12), in: Circle())
+                    Image(systemName: "plus").frame(width: 28, height: 28).background(.white.opacity(0.12), in: Circle())
                 }
-                .buttonStyle(.plain)
+                .menuStyle(.borderlessButton)
+                .disabled(overlayManager.lastExternalApp?.bundleIdentifier == nil)
             }
-            
-            Text("Pair apps that stay focused together")
-                .font(.caption)
-                .foregroundStyle(.secondary)
+            if settings.appGroups.isEmpty {
+                Text("Pair apps so their windows stay sharp together.")
+                    .font(.caption).foregroundStyle(.secondary)
+            } else {
+                ForEach(Array(settings.appGroups.enumerated()), id: \.offset) { index, group in
+                    HStack {
+                        Text(group.map(appDisplayName(for:)).joined(separator: " + "))
+                            .font(.caption).lineLimit(2)
+                        Spacer()
+                        Button {
+                            settings.removeGroup(at: index)
+                            overlayManager.repositionOverlaysBelowActiveWindow(force: true)
+                        } label: {
+                            Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
+                        }.buttonStyle(.plain)
+                    }
+                }
+            }
         }
         .padding(18)
         .polariseGlass(.card(cornerRadius: 28))
     }
+
+    private func appDisplayName(for bundleID: String) -> String {
+        guard let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID) else { return bundleID }
+        return (Bundle(url: url)?.object(forInfoDictionaryKey: "CFBundleName") as? String) ?? url.deletingPathExtension().lastPathComponent
+    }
     
+    private var gestureSettingsRow: some View {
+        Button {
+            withAnimation(.spring(response: 0.38, dampingFraction: 0.54)) {
+                showGestureSettings = true
+            }
+        } label: {
+            HStack(spacing: 14) {
+                HStack {
+                    Image(systemName: "magicmouse.fill")
+                        .font(.system(size: 24, weight: .medium))
+                        .frame(width: 48, height: 48)
+                    Text("Gestures").font(.headline.weight(.semibold))
+                }
+                Spacer()
+                Image(systemName: "chevron.down")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.horizontal, 18)
+            .frame(height: 60)
+            .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .polariseGlass(.capsule)
+    }
+
+    private var keyboardShortcutsRow: some View {
+        Button {
+            withAnimation(.spring(response: 0.38, dampingFraction: 0.54)) {
+                showKeyboardShortcuts = true
+            }
+        } label: {
+            HStack(spacing: 14) {
+                HStack(spacing: 14) {
+                    Image(systemName: "keyboard")
+                        .font(.system(size: 24, weight: .medium))
+                        .frame(width: 48, height: 48)
+                    Text("Keyboard Shortcuts").font(.headline.weight(.semibold))
+                }
+                Spacer()
+                Image(systemName: "chevron.down")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.horizontal, 18)
+            .frame(height: 60)
+            .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .polariseGlass(.capsule)
+    }
+
+    private var gesturesPage: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Button {
+                    withAnimation(.spring(response: 0.38, dampingFraction: 0.54)) {
+                        showGestureSettings = false
+                    }
+                } label: {
+                    Image(systemName: "chevron.left")
+                        .font(.system(size: 16, weight: .semibold))
+                        .frame(width: 30, height: 30)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                Spacer()
+                Text("Gestures")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.secondary)
+            }
+
+            VStack(spacing: 0) {
+                GestureToggleRow(title: "Shake gestures", isOn: $settings.shakeEnabled)
+                    .padding(.vertical, 4)
+                ModifierPickerRow(title: "Shake to toggle", selection: $settings.shakeModifiers)
+                ModifierPickerRow(title: "Hold + Shake to peek", selection: $settings.peekModifier)
+            }
+            .padding(.horizontal, 14)
+
+            Divider().opacity(0.8)
+
+            GestureToggleRow(title: "Peek at corners", isOn: $settings.peekAtCorners)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 8)
+
+            Divider().opacity(0.8)
+
+            VStack(spacing: 10) {
+                HStack {
+                    Text("Sensitivity")
+                        .font(.headline.weight(.medium))
+                    Spacer()
+                }
+                HStack(spacing: 10) {
+                    Text("Low")
+                        .font(.subheadline.weight(.medium))
+                        .foregroundStyle(.secondary)
+                    Slider(value: $settings.shakeSensitivity, in: 0...1, step: 0.1)
+                    Text("High")
+                        .font(.subheadline.weight(.medium))
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 8)
+        }
+        .padding(14)
+        .polariseGlass(.card(cornerRadius: 28))
+    }
+
+    private var ignoredAppsCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text("Ignored apps").font(.headline.weight(.semibold))
+                Spacer()
+                Menu {
+                    ForEach(NSWorkspace.shared.runningApplications.filter { $0.activationPolicy == .regular && $0.bundleIdentifier != Bundle.main.bundleIdentifier }.sorted { ($0.localizedName ?? "") < ($1.localizedName ?? "") }, id: \.processIdentifier) { app in
+                        Button(app.localizedName ?? app.bundleIdentifier ?? "App") {
+                            if let id = app.bundleIdentifier { settings.addIgnored(bundleID: id) }
+                        }
+                    }
+                    Button("Choose application…", systemImage: "folder") { chooseIgnoredApplication() }
+                } label: {
+                    Image(systemName: "plus").frame(width: 28, height: 28).background(.white.opacity(0.12), in: Circle())
+                }
+                .menuStyle(.borderlessButton)
+            }
+            if settings.ignoredBundleIDs.isEmpty {
+                Text("Ignored apps hide the overlay when active.").font(.caption).foregroundStyle(.secondary)
+            } else {
+                ForEach(settings.ignoredBundleIDs.sorted(), id: \.self) { bundleID in
+                    HStack(spacing: 9) {
+                        if let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID) {
+                            Image(nsImage: NSWorkspace.shared.icon(forFile: url.path)).resizable().frame(width: 24, height: 24)
+                        } else {
+                            Image(systemName: "app.dashed").frame(width: 24, height: 24)
+                        }
+                        Text(NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID)?.deletingPathExtension().lastPathComponent ?? bundleID)
+                            .font(.subheadline).lineLimit(1)
+                        Spacer()
+                        Button { settings.toggleIgnored(bundleID: bundleID); overlayManager.repositionOverlaysBelowActiveWindow(force: true) } label: {
+                            Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
+                        }.buttonStyle(.plain)
+                    }
+                }
+            }
+        }
+        .padding(18)
+        .polariseGlass(.card(cornerRadius: 28))
+    }
+
+    private func chooseIgnoredApplication() {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.application]
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        panel.begin { response in
+            guard response == .OK, let url = panel.url, let bundleID = Bundle(url: url)?.bundleIdentifier else { return }
+            settings.addIgnored(bundleID: bundleID)
+            overlayManager.repositionOverlaysBelowActiveWindow(force: true)
+        }
+    }
+
     private var extraSettingsCard: some View {
         AdditionalSettingsCard(
-            isAppWideFocusEnabled: $isAppWideFocusEnabled,
+            settings: settings,
             isStageManagerBlurEnabled: $isStageManagerBlurEnabled,
             multiScreenMode: $multiScreenMode,
             autoHideMode: $autoHideMode
@@ -378,7 +627,7 @@ struct ContentView: View {
 }
 
 private struct AdditionalSettingsCard: View {
-    @Binding var isAppWideFocusEnabled: Bool
+    @ObservedObject var settings: OverlaySettings
     @Binding var isStageManagerBlurEnabled: Bool
     @Binding var multiScreenMode: String
     @Binding var autoHideMode: String
@@ -388,7 +637,7 @@ private struct AdditionalSettingsCard: View {
             SettingsToggleRow(
                 title: "App-wide focus",
                 subtitle: "Show all windows of the same app",
-                isOn: $isAppWideFocusEnabled
+                isOn: $settings.appWideFocus
             )
 
             Divider()
@@ -430,7 +679,7 @@ private struct SettingsToggleRow: View {
     @Binding var isOn: Bool
 
     var body: some View {
-        HStack(spacing: 16) {
+        HStack(spacing: 8) {
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
                     .font(.headline.weight(.semibold))
@@ -439,7 +688,7 @@ private struct SettingsToggleRow: View {
                     .foregroundStyle(.secondary)
             }
 
-            Spacer(minLength: 12)
+            Spacer(minLength: 2)
 
             Toggle(title, isOn: $isOn)
                 .labelsHidden()
@@ -457,7 +706,7 @@ private struct SettingsMenuRow: View {
     let options: [String]
 
     var body: some View {
-        HStack(spacing: 16) {
+        HStack(spacing: 8) {
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
                     .font(.headline.weight(.semibold))
@@ -469,7 +718,7 @@ private struct SettingsMenuRow: View {
                 }
             }
 
-            Spacer(minLength: 12)
+            Spacer(minLength: 2)
 
             Menu {
                 ForEach(options, id: \.self) { option in
@@ -481,8 +730,6 @@ private struct SettingsMenuRow: View {
                 HStack(spacing: 6) {
                     Text(selection)
                         .font(.headline.weight(.medium))
-                    Image(systemName: "ellipsis")
-                        .font(.caption.weight(.semibold))
                 }
                 .foregroundStyle(.secondary)
             }
@@ -491,6 +738,198 @@ private struct SettingsMenuRow: View {
         }
         .padding(.horizontal, 18)
         .padding(.vertical, 18)
+    }
+}
+
+private struct GestureToggleRow: View {
+    let title: String
+    @Binding var isOn: Bool
+
+    var body: some View {
+        HStack {
+            Text(title)
+                .font(.system(size: 13, weight: .bold))
+            Spacer()
+            Toggle(title, isOn: $isOn)
+                .labelsHidden()
+                .toggleStyle(.switch)
+                .controlSize(.regular)
+        }
+        .frame(minHeight: 28)
+    }
+}
+
+private struct ModifierPickerRow: View {
+    let title: String
+    @Binding var selection: NSEvent.ModifierFlags
+
+    private let choices: [(String, NSEvent.ModifierFlags)] = [
+        ("No modifier", []),
+        ("Shift", .shift),
+        ("Control", .control),
+        ("Option", .option),
+        ("Command", .command)
+    ]
+
+    var body: some View {
+        HStack {
+            Text(title)
+                .font(.system(size: 12, weight: .medium))
+            Spacer()
+            Menu {
+                ForEach(choices.indices, id: \.self) { index in
+                    let choice = choices[index]
+                    Button {
+                        selection = choice.1
+                    } label: {
+                        if selection == choice.1 {
+                            Label(choice.0, systemImage: "checkmark")
+                        } else {
+                            Text(choice.0)
+                        }
+                    }
+                }
+            } label: {
+                HStack(spacing: 5) {
+                    Text(selectedTitle)
+                }
+                .foregroundStyle(.secondary)
+            }
+            .menuStyle(.borderlessButton)
+            .fixedSize()
+        }
+        .frame(minHeight: 42)
+    }
+
+    private var selectedTitle: String {
+        choices.first(where: { selection == $0.1 })?.0 ?? "Custom"
+    }
+}
+
+private struct KeyboardShortcutsCard: View {
+    let onBack: () -> Void
+    @State private var recordingHotkey: PolariseHotkey?
+    @State private var refreshID = UUID()
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Button(action: onBack) {
+                    Image(systemName: "chevron.left")
+                        .font(.system(size: 16, weight: .semibold))
+                        .frame(width: 30, height: 30)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                Spacer()
+                Text("Keyboard Shortcuts")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.secondary)
+            }
+            ForEach(PolariseHotkey.allCases, id: \.rawValue) { hotkey in
+                let binding = HotkeyManager.shared.loadBinding(for: hotkey)
+                HStack {
+                    Text(hotkey.title).font(.subheadline)
+                    Spacer()
+                    Text(shortcutLabel(binding)).font(.caption.monospaced()).foregroundStyle(.secondary)
+                    Button(recordingHotkey == hotkey ? "Press keys…" : "Record") {
+                        recordingHotkey = hotkey
+                    }
+                    .buttonStyle(.plain)
+                }
+                if recordingHotkey == hotkey {
+                    HotkeyCaptureField(isRecording: true) { binding in
+                        let manager = HotkeyManager.shared
+                        manager.saveBinding(binding, for: hotkey)
+                        manager.register(hotkey, binding: binding)
+                        recordingHotkey = nil
+                        refreshID = UUID()
+                        NSLog("[HotkeyManager] Recorded shortcut for %@", hotkey.title)
+                    }
+                    .frame(height: 30)
+                }
+                if hotkey.rawValue != PolariseHotkey.allCases.last?.rawValue {
+                    Divider().opacity(0.2)
+                }
+            }
+        }
+        .id(refreshID)
+        .padding(18)
+        .polariseGlass(.card(cornerRadius: 28))
+    }
+
+    private func shortcutLabel(_ binding: HotkeyBinding?) -> String {
+        guard let binding else { return "Not set" }
+        let carbonModifiers = binding.modifiers
+        var label = ""
+        if carbonModifiers & UInt32(controlKey) != 0 { label += "⌃" }
+        if carbonModifiers & UInt32(optionKey) != 0 { label += "⌥" }
+        if carbonModifiers & UInt32(shiftKey) != 0 { label += "⇧" }
+        if carbonModifiers & UInt32(cmdKey) != 0 { label += "⌘" }
+        return label + (binding.keyLabel ?? "Key \(binding.keyCode)")
+    }
+}
+
+private struct HotkeyCaptureField: NSViewRepresentable {
+    let isRecording: Bool
+    let onCapture: (HotkeyBinding) -> Void
+
+    func makeNSView(context: Context) -> HotkeyCaptureNSView {
+        let view = HotkeyCaptureNSView()
+        view.onCapture = onCapture
+        return view
+    }
+
+    func updateNSView(_ nsView: HotkeyCaptureNSView, context: Context) {
+        nsView.onCapture = onCapture
+        nsView.isRecording = isRecording
+        if isRecording {
+            DispatchQueue.main.async { nsView.window?.makeFirstResponder(nsView) }
+        }
+    }
+}
+
+private final class HotkeyCaptureNSView: NSView {
+    var isRecording = false { didSet { needsDisplay = true } }
+    var onCapture: ((HotkeyBinding) -> Void)?
+
+    override var acceptsFirstResponder: Bool { true }
+
+    override func draw(_ dirtyRect: NSRect) {
+        super.draw(dirtyRect)
+        let title = isRecording ? "Type a shortcut with ⌘, ⌥, ⌃, or ⇧" : ""
+        title.draw(in: bounds.insetBy(dx: 8, dy: 5), withAttributes: [
+            .font: NSFont.systemFont(ofSize: 12),
+            .foregroundColor: NSColor.secondaryLabelColor
+        ])
+    }
+
+    override func keyDown(with event: NSEvent) {
+        guard isRecording else { return }
+        let modifiers: NSEvent.ModifierFlags = [.command, .option, .control, .shift]
+        let selected = event.modifierFlags.intersection(modifiers)
+        guard !selected.isEmpty, let keyLabel = event.charactersIgnoringModifiers?.uppercased(), !keyLabel.isEmpty else {
+            NSSound.beep()
+            return
+        }
+        let binding = HotkeyBinding(
+            keyCode: UInt32(event.keyCode),
+            modifiers: HotkeyManager.shared.carbonModifiers(from: selected),
+            keyLabel: keyLabel
+        )
+        onCapture?(binding)
+    }
+}
+
+private extension PolariseHotkey {
+    var title: String {
+        switch self {
+        case .toggleOverlay: "Toggle overlay"
+        case .ignoreCurrentApp: "Ignore current app"
+        case .blurUp: "Increase blur"
+        case .blurDown: "Decrease blur"
+        case .toggleAppFocus: "Toggle app-wide focus"
+        }
     }
 }
 

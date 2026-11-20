@@ -125,16 +125,19 @@ final class OverlayWindow: NSWindow {
         }
     }
 
-    func showBelow(windowNumber: Int) {
+    func showBelow(windowNumber: Int, animated: Bool) {
         visibilityAnimationGeneration += 1
-
-        // Always start from zero so the fade-in plays every time
-        alphaValue = 0
         orderFront(nil)
         order(.below, relativeTo: windowNumber)
 
+        guard animated else {
+            alphaValue = 1
+            return
+        }
+
+        if alphaValue <= 0 { alphaValue = 0 }
         NSAnimationContext.runAnimationGroup { context in
-            context.duration = 0.24
+            context.duration = settings.fadeInDuration
             context.timingFunction = CAMediaTimingFunction(name: .easeOut)
             animator().alphaValue = 1
         }
@@ -150,7 +153,7 @@ final class OverlayWindow: NSWindow {
         let animationGeneration = visibilityAnimationGeneration
 
         NSAnimationContext.runAnimationGroup { context in
-            context.duration = 0.18
+            context.duration = settings.fadeOutDuration
             context.timingFunction = CAMediaTimingFunction(name: .easeIn)
             animator().alphaValue = 0
         } completionHandler: { [weak self] in
