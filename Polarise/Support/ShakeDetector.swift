@@ -106,8 +106,6 @@ final class ShakeDetector {
         }
     }
 
-    /// Counts completed swings, measuring speed across each full swing instead of
-    /// the tiny event-to-event step at the instant direction changes.
     private func qualifyingReversals(minimumDistance: CGFloat, minimumSpeed: Double) -> Int {
         guard let first = buffer.first else { return 0 }
         var pivot = first
@@ -126,8 +124,6 @@ final class ShakeDetector {
                 continue
             }
 
-            // A reversal is accepted only after the cursor has moved far enough
-            // back from the previous extreme, filtering small tracking jitter.
             let reverseDistance = abs(sample.x - extreme.x)
             guard reverseDistance >= minimumDistance else { continue }
 

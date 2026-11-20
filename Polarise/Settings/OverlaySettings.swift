@@ -161,17 +161,19 @@ final class OverlaySettings: ObservableObject {
 
         // ignoredBundleIDs — try JSON first, fall back to legacy stringArray
         if let saved = OverlaySettings.loadJSON([String].self, forKey: Keys.ignoredBundleIDs) {
-            self.ignoredBundleIDs = Set(saved)
+            self.ignoredBundleIDs = Set(saved).union(["com.apple.ColorMeter"])
         } else if let legacy = ud.stringArray(forKey: Keys.ignoredBundleIDs) {
-            self.ignoredBundleIDs = Set(legacy)
+            self.ignoredBundleIDs = Set(legacy).union(["com.apple.ColorMeter"])
             // migrate to JSON
             OverlaySettings.saveJSON(Array(Set(legacy)), forKey: Keys.ignoredBundleIDs)
         } else {
-            self.ignoredBundleIDs = []
+            self.ignoredBundleIDs = ["com.apple.ColorMeter"]
         }
 
         // appGroups
-        self.appGroups = OverlaySettings.loadJSON([[String]].self, forKey: Keys.appGroups) ?? []
+        self.appGroups = (OverlaySettings.loadJSON([[String]].self, forKey: Keys.appGroups) ?? [])
+            .map { $0.filter { $0 != "com.apple.finder" } }
+            .filter { !$0.isEmpty }
     }
 
     // MARK: - Presets
@@ -218,8 +220,15 @@ final class OverlaySettings: ObservableObject {
     }
 
     func addGroup(_ bundleIDs: [String]) {
-        guard !bundleIDs.isEmpty else { return }
-        appGroups.append(bundleIDs)
+        let selectedIDs = Array(Set(bundleIDs.filter { $0 != "com.apple.finder" }))
+        guard !selectedIDs.isEmpty else { return }
+
+        let matchingGroups = appGroups.filter { group in
+            !Set(group).isDisjoint(with: selectedIDs)
+        }
+        let mergedIDs = Set(matchingGroups.flatMap { $0 }).union(selectedIDs)
+        appGroups.removeAll { group in !Set(group).isDisjoint(with: selectedIDs) }
+        appGroups.append(Array(mergedIDs).sorted())
     }
 
     func removeGroup(at index: Int) {

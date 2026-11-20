@@ -14,6 +14,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var panel: FloatingPopoverPanel!
     private var globalClickMonitor: Any?
     private var localKeyMonitor: Any?
+    var isSelectingApplications = false
     
     let overlaySettings = OverlaySettings()
     lazy var overlayManager = OverlayManager(settings: overlaySettings)
@@ -52,6 +53,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let manager = HotkeyManager.shared
         manager.handlers = [
             .toggleOverlay: { [weak self] in self?.overlayManager.isOverlayEnabled.toggle() },
+            .switchMode: { [weak self] in
+                guard let self else { return }
+                self.overlaySettings.applyPreset(self.overlaySettings.currentPreset == .deep ? .medium : .deep)
+            },
             .ignoreCurrentApp: { [weak self] in
                 guard let self, let app = NSWorkspace.shared.frontmostApplication,
                       app.bundleIdentifier != Bundle.main.bundleIdentifier,
@@ -59,18 +64,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 self.overlaySettings.toggleIgnored(bundleID: bundleID)
                 self.overlayManager.repositionOverlaysBelowActiveWindow(force: true)
             },
-            .blurUp: { [weak self] in
-                guard let self else { return }
-                self.overlaySettings.blurRadius = min(100, self.overlaySettings.blurRadius + 10)
-            },
-            .blurDown: { [weak self] in
-                guard let self else { return }
-                self.overlaySettings.blurRadius = max(0, self.overlaySettings.blurRadius - 10)
-            },
-            .toggleAppFocus: { [weak self] in
-                guard let self else { return }
-                self.overlaySettings.appWideFocus.toggle()
-                self.overlayManager.repositionOverlaysBelowActiveWindow(force: true)
+            .toggleControls: { [weak self] in
+                self?.togglePanel()
             }
         ]
         manager.loadAndRegisterAll()
@@ -156,6 +151,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         
         globalClickMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] event in
             guard let self, self.panel.isVisible else { return }
+            guard !self.isSelectingApplications else { return }
             
             // Ignore clicks that land on the status-bar button itself —
             // those are handled by togglePanel() via the button action.

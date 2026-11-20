@@ -386,27 +386,12 @@ struct ContentView: View {
             HStack {
                 Text("App Groups").font(.headline.weight(.semibold))
                 Spacer()
-                Menu {
-                    let currentID = overlayManager.lastExternalApp?.bundleIdentifier
-                    ForEach(NSWorkspace.shared.runningApplications.filter {
-                        $0.activationPolicy == .regular && $0.bundleIdentifier != nil &&
-                        $0.bundleIdentifier != currentID && $0.bundleIdentifier != Bundle.main.bundleIdentifier
-                    }.sorted { ($0.localizedName ?? "") < ($1.localizedName ?? "") }, id: \.processIdentifier) { app in
-                        Button(app.localizedName ?? app.bundleIdentifier ?? "App") {
-                            guard let currentID, let peerID = app.bundleIdentifier else { return }
-                            if settings.appGroups.contains(where: { $0.contains(currentID) }) {
-                                settings.addBundleID(peerID, toGroupContaining: currentID)
-                            } else {
-                                settings.addGroup([currentID, peerID])
-                            }
-                            overlayManager.repositionOverlaysBelowActiveWindow(force: true)
-                        }
-                    }
+                Button {
+                    chooseAppGroupApplication()
                 } label: {
                     Image(systemName: "plus").frame(width: 28, height: 28).background(.white.opacity(0.12), in: Circle())
                 }
-                .menuStyle(.borderlessButton)
-                .disabled(overlayManager.lastExternalApp?.bundleIdentifier == nil)
+                .buttonStyle(.plain)
             }
             if settings.appGroups.isEmpty {
                 Text("Pair apps so their windows stay sharp together.")
@@ -414,9 +399,26 @@ struct ContentView: View {
             } else {
                 ForEach(Array(settings.appGroups.enumerated()), id: \.offset) { index, group in
                     HStack {
+                        HStack(spacing: -10) {
+                            ForEach(group, id: \.self) { bundleID in
+                                appIcon(for: bundleID)
+                                    .frame(width: 38, height: 38)
+                                    .overlay(Circle().strokeBorder(.white.opacity(0.25), lineWidth: 1))
+                            }
+                        }
                         Text(group.map(appDisplayName(for:)).joined(separator: " + "))
-                            .font(.caption).lineLimit(2)
+                            .font(.headline.weight(.semibold)).lineLimit(2)
+                            .padding(.leading, 6)
                         Spacer()
+                        Button {
+                            chooseAppGroupApplication(addingTo: group.first)
+                        } label: {
+                            Image(systemName: "plus")
+                                .font(.system(size: 18, weight: .medium))
+                                .foregroundStyle(.secondary)
+                                .frame(width: 34, height: 34)
+                        }
+                        .buttonStyle(.plain)
                         Button {
                             settings.removeGroup(at: index)
                             overlayManager.repositionOverlaysBelowActiveWindow(force: true)
@@ -427,13 +429,85 @@ struct ContentView: View {
                 }
             }
         }
-        .padding(18)
+        .padding(.horizontal, 18)
+        .padding(.vertical, 28)
         .polariseGlass(.card(cornerRadius: 28))
     }
 
+    @ViewBuilder
+    private func appIcon(for bundleID: String) -> some View {
+        if let url = applicationURL(for: bundleID) {
+            Image(nsImage: NSWorkspace.shared.icon(forFile: url.path))
+                .resizable()
+                .scaledToFit()
+                .clipShape(RoundedRectangle(cornerRadius: 9))
+        } else {
+            Image(systemName: "app.dashed")
+                .resizable()
+                .scaledToFit()
+                .padding(7)
+                .foregroundStyle(.secondary)
+        }
+    }
+
     private func appDisplayName(for bundleID: String) -> String {
-        guard let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID) else { return bundleID }
+        guard let url = applicationURL(for: bundleID) else { return bundleID }
         return (Bundle(url: url)?.object(forInfoDictionaryKey: "CFBundleName") as? String) ?? url.deletingPathExtension().lastPathComponent
+    }
+
+    private func applicationURL(for bundleID: String) -> URL? {
+        if let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID) {
+            return url
+        }
+        guard bundleID == "com.apple.ColorMeter" else { return nil }
+        let candidates = [
+            URL(fileURLWithPath: "/System/Applications/Utilities/Digital Colour Meter.app"),
+            URL(fileURLWithPath: "/System/Applications/Utilities/Digital Color Meter.app"),
+            URL(fileURLWithPath: "/Applications/Utilities/Digital Colour Meter.app")
+        ]
+        return candidates.first { FileManager.default.fileExists(atPath: $0.path) }
+    }
+
+    private func selectApplications(title: String) -> [URL]? {
+        let panel = NSOpenPanel()
+        panel.title = title
+        panel.directoryURL = URL(fileURLWithPath: "/Applications", isDirectory: true)
+        panel.allowedContentTypes = [.application]
+        panel.allowsMultipleSelection = true
+        panel.canChooseDirectories = false
+        panel.level = .statusBar
+
+        let wasOverlayEnabled = overlayManager.isOverlayEnabled
+        if wasOverlayEnabled {
+            overlayManager.isOverlayEnabled = false
+        }
+
+        let appDelegate = NSApp.delegate as? AppDelegate
+        appDelegate?.isSelectingApplications = true
+        NSApp.activate(ignoringOtherApps: true)
+        defer {
+            appDelegate?.isSelectingApplications = false
+            if wasOverlayEnabled {
+                overlayManager.isOverlayEnabled = true
+            }
+        }
+
+        guard panel.runModal() == .OK else { return nil }
+        return panel.urls
+    }
+
+    private func chooseAppGroupApplication(addingTo existingGroupMember: String? = nil) {
+        guard let urls = selectApplications(title: "Add Application to App Group") else { return }
+        let selectedIDs = Set(urls.compactMap { Bundle(url: $0)?.bundleIdentifier })
+            .filter { $0 != "com.apple.finder" && $0 != Bundle.main.bundleIdentifier }
+        let bundleIDs = Array(selectedIDs)
+        if let existingGroupMember,
+           let group = settings.appGroups.first(where: { $0.contains(existingGroupMember) }) {
+            settings.addGroup(group + bundleIDs)
+        } else {
+            settings.addGroup(bundleIDs)
+        }
+        overlayManager.repositionOverlaysBelowActiveWindow(force: true)
     }
     
     private var gestureSettingsRow: some View {
@@ -552,29 +626,23 @@ struct ContentView: View {
             HStack {
                 Text("Ignored apps").font(.headline.weight(.semibold))
                 Spacer()
-                Menu {
-                    ForEach(NSWorkspace.shared.runningApplications.filter { $0.activationPolicy == .regular && $0.bundleIdentifier != Bundle.main.bundleIdentifier }.sorted { ($0.localizedName ?? "") < ($1.localizedName ?? "") }, id: \.processIdentifier) { app in
-                        Button(app.localizedName ?? app.bundleIdentifier ?? "App") {
-                            if let id = app.bundleIdentifier { settings.addIgnored(bundleID: id) }
-                        }
-                    }
-                    Button("Choose application…", systemImage: "folder") { chooseIgnoredApplication() }
+                Button {
+                    chooseIgnoredApplications()
                 } label: {
                     Image(systemName: "plus").frame(width: 28, height: 28).background(.white.opacity(0.12), in: Circle())
                 }
-                .menuStyle(.borderlessButton)
+                .buttonStyle(.plain)
             }
             if settings.ignoredBundleIDs.isEmpty {
                 Text("Ignored apps hide the overlay when active.").font(.caption).foregroundStyle(.secondary)
             } else {
                 ForEach(settings.ignoredBundleIDs.sorted(), id: \.self) { bundleID in
                     HStack(spacing: 9) {
-                        if let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID) {
-                            Image(nsImage: NSWorkspace.shared.icon(forFile: url.path)).resizable().frame(width: 24, height: 24)
-                        } else {
-                            Image(systemName: "app.dashed").frame(width: 24, height: 24)
-                        }
-                        Text(NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID)?.deletingPathExtension().lastPathComponent ?? bundleID)
+                        appIcon(for: bundleID)
+                            .frame(width: 36, height: 36)
+                            .background(.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 9))
+                            .overlay(RoundedRectangle(cornerRadius: 9).strokeBorder(.white.opacity(0.15), lineWidth: 0.75))
+                        Text(appDisplayName(for: bundleID))
                             .font(.subheadline).lineLimit(1)
                         Spacer()
                         Button { settings.toggleIgnored(bundleID: bundleID); overlayManager.repositionOverlaysBelowActiveWindow(force: true) } label: {
@@ -588,16 +656,13 @@ struct ContentView: View {
         .polariseGlass(.card(cornerRadius: 28))
     }
 
-    private func chooseIgnoredApplication() {
-        let panel = NSOpenPanel()
-        panel.allowedContentTypes = [.application]
-        panel.allowsMultipleSelection = false
-        panel.canChooseDirectories = false
-        panel.begin { response in
-            guard response == .OK, let url = panel.url, let bundleID = Bundle(url: url)?.bundleIdentifier else { return }
+    private func chooseIgnoredApplications() {
+        guard let urls = selectApplications(title: "Add Ignored Applications") else { return }
+        for bundleID in urls.compactMap({ Bundle(url: $0)?.bundleIdentifier })
+            where bundleID != Bundle.main.bundleIdentifier {
             settings.addIgnored(bundleID: bundleID)
-            overlayManager.repositionOverlaysBelowActiveWindow(force: true)
         }
+        overlayManager.repositionOverlaysBelowActiveWindow(force: true)
     }
 
     private var extraSettingsCard: some View {
@@ -822,51 +887,85 @@ private struct KeyboardShortcutsCard: View {
                 }
                 .buttonStyle(.plain)
                 Spacer()
-                Text("Keyboard Shortcuts")
+                Text("Shortcuts")
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(.secondary)
             }
             ForEach(PolariseHotkey.allCases, id: \.rawValue) { hotkey in
-                let binding = HotkeyManager.shared.loadBinding(for: hotkey)
-                HStack {
-                    Text(hotkey.title).font(.subheadline)
-                    Spacer()
-                    Text(shortcutLabel(binding)).font(.caption.monospaced()).foregroundStyle(.secondary)
-                    Button(recordingHotkey == hotkey ? "Press keys…" : "Record") {
-                        recordingHotkey = hotkey
+                let manager = HotkeyManager.shared
+                let binding = manager.loadBinding(for: hotkey) ?? manager.defaultBinding(for: hotkey)
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(alignment: .center) {
+                        Text(hotkey.title)
+                            .font(.system(size: 15, weight: .semibold))
+                        Spacer()
+                        Button {
+                            recordingHotkey = hotkey
+                        } label: {
+                            Image(systemName: "pencil")
+                                .font(.system(size: 15, weight: .medium))
+                                .foregroundStyle(.secondary)
+                                .frame(width: 28, height: 30)
+                        }
+                        .buttonStyle(.plain)
+                        Button {
+                            manager.removeBinding(for: hotkey)
+                            refreshID = UUID()
+                        } label: {
+                            Image(systemName: "trash")
+                                .font(.system(size: 16, weight: .regular))
+                                .foregroundStyle(.secondary)
+                                .frame(width: 28, height: 30)
+                        }
+                        .buttonStyle(.plain)
                     }
-                    .buttonStyle(.plain)
-                }
-                if recordingHotkey == hotkey {
-                    HotkeyCaptureField(isRecording: true) { binding in
-                        let manager = HotkeyManager.shared
-                        manager.saveBinding(binding, for: hotkey)
-                        manager.register(hotkey, binding: binding)
-                        recordingHotkey = nil
-                        refreshID = UUID()
-                        NSLog("[HotkeyManager] Recorded shortcut for %@", hotkey.title)
+                    if recordingHotkey == hotkey {
+                        Text("• Recording…")
+                            .font(.system(size: 15, weight: .medium))
+                            .foregroundStyle(.blue)
+                    } else {
+                        HStack(spacing: 8) {
+                            ForEach(Array(shortcutTokens(binding).enumerated()), id: \.offset) { _, token in
+                                Text(token)
+                                    .font(.system(size: 14, weight: .medium))
+                                    .foregroundStyle(.white.opacity(0.82))
+                                    .frame(width: 28, height: 28)
+                                    .background(.white.opacity(0.10), in: Circle())
+                            }
+                        }
                     }
-                    .frame(height: 30)
+                    if recordingHotkey == hotkey {
+                        HotkeyCaptureField(isRecording: true) { binding in
+                            manager.saveBinding(binding, for: hotkey)
+                            manager.register(hotkey, binding: binding)
+                            recordingHotkey = nil
+                            refreshID = UUID()
+                        }
+                        .frame(height: 1)
+                        .opacity(0.01)
+                    }
                 }
                 if hotkey.rawValue != PolariseHotkey.allCases.last?.rawValue {
-                    Divider().opacity(0.2)
+                    Spacer(minLength: 0)
                 }
             }
         }
         .id(refreshID)
-        .padding(18)
-        .polariseGlass(.card(cornerRadius: 28))
+        .padding(.horizontal, 28)
+        .padding(.vertical, 24)
+        .polariseGlass(.card(cornerRadius: 34))
     }
 
-    private func shortcutLabel(_ binding: HotkeyBinding?) -> String {
-        guard let binding else { return "Not set" }
-        let carbonModifiers = binding.modifiers
-        var label = ""
-        if carbonModifiers & UInt32(controlKey) != 0 { label += "⌃" }
-        if carbonModifiers & UInt32(optionKey) != 0 { label += "⌥" }
-        if carbonModifiers & UInt32(shiftKey) != 0 { label += "⇧" }
-        if carbonModifiers & UInt32(cmdKey) != 0 { label += "⌘" }
-        return label + (binding.keyLabel ?? "Key \(binding.keyCode)")
+    private func shortcutTokens(_ binding: HotkeyBinding?) -> [String] {
+        guard let binding else { return [] }
+        let flags = binding.modifiers
+        var tokens: [String] = []
+        if flags & UInt32(controlKey) != 0 { tokens.append("⌃") }
+        if flags & UInt32(optionKey) != 0 { tokens.append("⌥") }
+        if flags & UInt32(shiftKey) != 0 { tokens.append("⇧") }
+        if flags & UInt32(cmdKey) != 0 { tokens.append("⌘") }
+        tokens.append(binding.keyLabel ?? "Key \(binding.keyCode)")
+        return tokens
     }
 }
 
@@ -924,11 +1023,10 @@ private final class HotkeyCaptureNSView: NSView {
 private extension PolariseHotkey {
     var title: String {
         switch self {
-        case .toggleOverlay: "Toggle overlay"
-        case .ignoreCurrentApp: "Ignore current app"
-        case .blurUp: "Increase blur"
-        case .blurDown: "Decrease blur"
-        case .toggleAppFocus: "Toggle app-wide focus"
+        case .toggleOverlay: "Toggle Polarise"
+        case .switchMode: "Switch Mode"
+        case .ignoreCurrentApp: "Ignore App"
+        case .toggleControls: "Toggle Controls"
         }
     }
 }

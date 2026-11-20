@@ -10,8 +10,6 @@ import AppKit
 
 enum GrainTile {
     static let patternColor: NSColor = {
-        // Render at screen backing scale so each noise pixel is exactly
-        // one physical pixel on Retina — sharp, film-grain-like particles.
         let scale      = Int(NSScreen.main?.backingScaleFactor ?? 2)
         let logicalSize  = 512
         let physicalSize = logicalSize * scale
@@ -22,10 +20,6 @@ enum GrainTile {
     private static func makeNoiseTile(physicalSize: Int, logicalSize: Int) -> NSImage {
         let pixelCount = physicalSize * physicalSize
 
-        // Full 0–255 luminance range: gives visible dark → bright grain variance.
-        // The layer's opacity (grainOpacity setting) controls overall intensity.
-        // Using the full range lets individual grain particles be truly distinct,
-        // matching the analog film-grain look (high contrast between neighbours).
         var pixels = [UInt8](repeating: 0, count: pixelCount)
         var seed: UInt64 = 0x9E3779B97F4A7C15
         for i in 0..<pixelCount {
@@ -49,14 +43,13 @@ enum GrainTile {
                 bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.none.rawValue),
                 provider: provider,
                 decode: nil,
-                shouldInterpolate: false,   // keep each grain pixel sharp, no anti-aliasing
+                shouldInterpolate: false,
                 intent: .defaultIntent
               )
         else {
             return NSImage(size: NSSize(width: logicalSize, height: logicalSize))
         }
 
-        // Logical size tells AppKit how to tile at the correct screen density
         return NSImage(cgImage: cgImage, size: NSSize(width: logicalSize, height: logicalSize))
     }
 }
