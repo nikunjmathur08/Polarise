@@ -37,6 +37,7 @@ struct ContentView: View {
     @State private var showGestureSettings = false
     @State private var showKeyboardShortcuts = false
     @State private var showTintPicker = false
+    @State private var expandedAppGroups: Set<String> = []
     @State private var isStageManagerBlurEnabled = false
     @State private var multiScreenMode = "Per screen"
     @State private var autoHideMode = "Off"
@@ -113,6 +114,12 @@ struct ContentView: View {
         .onChange(of: showTintPicker) { _, _ in
             DispatchQueue.main.async { onResize() }
         }
+        .onChange(of: expandedAppGroups) { _, _ in
+            DispatchQueue.main.async { onResize() }
+        }
+        .onChange(of: settings.appGroups) { _, _ in
+            DispatchQueue.main.async { onResize() }
+        }
     }
     
     private var menuBarInset: CGFloat {
@@ -171,22 +178,23 @@ struct ContentView: View {
                         .font(.headline.weight(.semibold))
                     Text(appName)
                         .font(.subheadline)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(isIgnored ? Color.white.opacity(0.82) : Color.secondary)
                         .lineLimit(1)
                 }
                 
                 Spacer(minLength: 4)
                 
-                Image(systemName: isIgnored ? "checkmark" : "plus")
+                Image(systemName: isIgnored ? "minus" : "plus")
                     .font(.body.weight(.medium))
-                    .foregroundStyle(isIgnored ? .green : .primary)
+                    .foregroundStyle(isIgnored ? Color.white : Color.primary)
             }
             .padding(.horizontal, 18)
             .frame(height: 72)
             .contentShape(Capsule())
+            .foregroundStyle(isIgnored ? Color.white : Color.primary)
         }
         .buttonStyle(.plain)
-        .polariseGlass(.capsule)
+        .modifier(IgnoredStatePillModifier(isIgnored: isIgnored))
     }
     
     private var powerButton: some View {
@@ -389,7 +397,10 @@ struct ContentView: View {
                 Button {
                     chooseAppGroupApplication()
                 } label: {
-                    Image(systemName: "plus").frame(width: 28, height: 28).background(.white.opacity(0.12), in: Circle())
+                    Image(systemName: "plus")
+                        .font(.system(size: 18))
+                        .frame(width: 36, height: 36)
+                        .background(.white.opacity(0.12), in: Circle())
                 }
                 .buttonStyle(.plain)
             }
@@ -398,33 +409,81 @@ struct ContentView: View {
                     .font(.caption).foregroundStyle(.secondary)
             } else {
                 ForEach(Array(settings.appGroups.enumerated()), id: \.offset) { index, group in
-                    HStack {
-                        HStack(spacing: -10) {
-                            ForEach(group, id: \.self) { bundleID in
-                                appIcon(for: bundleID)
-                                    .frame(width: 38, height: 38)
-                                    .overlay(Circle().strokeBorder(.white.opacity(0.25), lineWidth: 1))
+                    let groupKey = group.sorted().joined(separator: "|")
+                    VStack(spacing: 12) {
+                        HStack {
+                            Button {
+                                withAnimation(.spring(response: 0.34, dampingFraction: 0.86)) {
+                                    if expandedAppGroups.contains(groupKey) {
+                                        expandedAppGroups.remove(groupKey)
+                                    } else {
+                                        expandedAppGroups.insert(groupKey)
+                                    }
+                                }
+                            } label: {
+                                HStack(spacing: 0) {
+                                    HStack(spacing: -18) {
+                                        ForEach(Array(group.prefix(3)), id: \.self) { bundleID in
+                                            appIcon(for: bundleID)
+                                                .frame(width: 30, height: 30)
+                                        }
+                                    }
+                                    Text(appGroupDisplayName(group))
+                                        .font(.headline.weight(.semibold))
+                                        .lineLimit(1)
+                                        .padding(.leading, 12)
+                                }
+                                .contentShape(Rectangle())
                             }
+                            .buttonStyle(.plain)
+                            Spacer(minLength: 4)
+                            Button {
+                                chooseAppGroupApplication(addingTo: group.first)
+                            } label: {
+                                Image(systemName: "plus")
+                                    .font(.system(size: 18, weight: .medium))
+                                    .foregroundStyle(.secondary)
+                                    .frame(width: 34, height: 34)
+                            }
+                            .buttonStyle(.plain)
+                            Button {
+                                settings.removeGroup(at: index)
+                                overlayManager.repositionOverlaysBelowActiveWindow(force: true)
+                            } label: {
+                                Image(systemName: "trash")
+                                    .foregroundStyle(.secondary)
+                                    .frame(width: 28, height: 34)
+                            }
+                            .buttonStyle(.plain)
                         }
-                        Text(group.map(appDisplayName(for:)).joined(separator: " + "))
-                            .font(.headline.weight(.semibold)).lineLimit(2)
-                            .padding(.leading, 6)
-                        Spacer()
-                        Button {
-                            chooseAppGroupApplication(addingTo: group.first)
-                        } label: {
-                            Image(systemName: "plus")
-                                .font(.system(size: 18, weight: .medium))
-                                .foregroundStyle(.secondary)
-                                .frame(width: 34, height: 34)
+
+                        if expandedAppGroups.contains(groupKey) {
+                            VStack(spacing: 8) {
+                                ForEach(group, id: \.self) { bundleID in
+                                    HStack(spacing: 14) {
+                                        appIcon(for: bundleID)
+                                            .frame(width: 30, height: 30)
+                                        Text(appDisplayName(for: bundleID))
+                                            .font(.subheadline)
+                                            .lineLimit(1)
+                                        Spacer()
+                                        Button {
+                                            settings.removeFromGroup(bundleID)
+                                            expandedAppGroups.remove(groupKey)
+                                            overlayManager.repositionOverlaysBelowActiveWindow(force: true)
+                                        } label: {
+                                            Image(systemName: "minus")
+                                                .font(.system(size: 17, weight: .medium))
+                                                .foregroundStyle(.secondary)
+                                                .frame(width: 30, height: 30)
+                                        }
+                                        .buttonStyle(.plain)
+                                    }
+                                    .padding(.leading, 20)
+                                }
+                            }
+                            .transition(.opacity.combined(with: .move(edge: .top)))
                         }
-                        .buttonStyle(.plain)
-                        Button {
-                            settings.removeGroup(at: index)
-                            overlayManager.repositionOverlaysBelowActiveWindow(force: true)
-                        } label: {
-                            Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
-                        }.buttonStyle(.plain)
                     }
                 }
             }
@@ -453,6 +512,13 @@ struct ContentView: View {
     private func appDisplayName(for bundleID: String) -> String {
         guard let url = applicationURL(for: bundleID) else { return bundleID }
         return (Bundle(url: url)?.object(forInfoDictionaryKey: "CFBundleName") as? String) ?? url.deletingPathExtension().lastPathComponent
+    }
+
+    private func appGroupDisplayName(_ bundleIDs: [String]) -> String {
+        let names = bundleIDs.map(appDisplayName(for:)).joined(separator: ", ")
+        let maximumLength = 28
+        guard names.count > maximumLength else { return names }
+        return String(names.prefix(maximumLength - 3)) + "..."
     }
 
     private func applicationURL(for bundleID: String) -> URL? {
@@ -1027,6 +1093,32 @@ private extension PolariseHotkey {
         case .switchMode: "Switch Mode"
         case .ignoreCurrentApp: "Ignore App"
         case .toggleControls: "Toggle Controls"
+        }
+    }
+}
+
+private struct IgnoredStatePillModifier: ViewModifier {
+    let isIgnored: Bool
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if isIgnored {
+            content
+                .background {
+                    Capsule()
+                        .fill(LinearGradient(
+                            colors: [Color(red: 0.03, green: 0.43, blue: 0.96), Color(red: 0.02, green: 0.30, blue: 0.78)],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        ))
+                }
+                .overlay {
+                    Capsule()
+                        .strokeBorder(Color.cyan.opacity(0.85), lineWidth: 1)
+                }
+                .shadow(color: .blue.opacity(0.35), radius: 10, y: 3)
+        } else {
+            content.polariseGlass(.capsule)
         }
     }
 }
