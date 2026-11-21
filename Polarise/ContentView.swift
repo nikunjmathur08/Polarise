@@ -88,6 +88,7 @@ struct ContentView: View {
                         }
                         ignoredAppsCard
                         extraSettingsCard
+                        creditsCard
                     }
                 }
                 .padding(.horizontal, 14)
@@ -198,17 +199,53 @@ struct ContentView: View {
     }
     
     private var powerButton: some View {
-        Button {
+        let isEnabled = overlayManager.isOverlayEnabled
+        return Button {
             overlayManager.isOverlayEnabled.toggle()
         } label: {
             Image(systemName: "power")
                 .font(.title3.weight(.medium))
-                .foregroundStyle(overlayManager.isOverlayEnabled ? .primary : .secondary)
+                .foregroundStyle(isEnabled ? Color.blue : Color.secondary)
                 .frame(width: 80, height: 72)
                 .contentShape(Circle())
         }
         .buttonStyle(.plain)
-        .polariseGlass(.capsule)
+        .modifier(PowerButtonStateModifier(isEnabled: isEnabled))
+    }
+
+    private var creditsCard: some View {
+        VStack(spacing: 20) {
+            Image(systemName: "apple.logo")
+                .font(.system(size: 25, weight: .medium))
+                .foregroundStyle(.white)
+
+            if let portfolioURL = URL(string: "https://nikunjmathur.vercel.app") {
+                HStack(spacing: 0) {
+                    Text("Passionately crafted by ")
+                        .foregroundStyle(Color.white.opacity(0.78))
+                    Link("Nikunj Mathur", destination: portfolioURL)
+                        .foregroundStyle(Color.white.opacity(0.9))
+                        .underline()
+                }
+                .font(.system(size: 14, weight: .medium))
+                .multilineTextAlignment(.center)
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.horizontal, 20)
+        .padding(.vertical, 30)
+        .background {
+            RoundedRectangle(cornerRadius: 34, style: .continuous)
+                .fill(LinearGradient(
+                    colors: [Color(red: 0.02, green: 0.39, blue: 0.86), Color(red: 0.02, green: 0.29, blue: 0.68)],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                ))
+        }
+        .overlay {
+            RoundedRectangle(cornerRadius: 34, style: .continuous)
+                .strokeBorder(Color.cyan.opacity(0.8), lineWidth: 1)
+        }
     }
     
     private var modePillCard: some View {
@@ -1116,7 +1153,6 @@ private struct IgnoredStatePillModifier: ViewModifier {
                     Capsule()
                         .strokeBorder(Color.cyan.opacity(0.85), lineWidth: 1)
                 }
-                .shadow(color: .blue.opacity(0.35), radius: 10, y: 3)
         } else {
             content.polariseGlass(.capsule)
         }
@@ -1125,4 +1161,18 @@ private struct IgnoredStatePillModifier: ViewModifier {
 
 #Preview {
     ContentView()
+}
+
+private struct PowerButtonStateModifier: ViewModifier {
+    let isEnabled: Bool
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if isEnabled {
+            content
+                .background(Capsule().fill(Color.white))
+        } else {
+            content.polariseGlass(.capsule)
+        }
+    }
 }

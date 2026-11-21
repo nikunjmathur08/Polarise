@@ -40,7 +40,6 @@ struct GlassCardModifier: ViewModifier {
                         RoundedRectangle(cornerRadius: radius, style: .continuous)
                             .strokeBorder(.white.opacity(0.22), lineWidth: 0.75)
                     )
-                    .shadow(color: .black.opacity(0.25), radius: 14, y: 6)
             case .capsule:
                 content
                     .background(.regularMaterial, in: Capsule())
@@ -48,7 +47,6 @@ struct GlassCardModifier: ViewModifier {
                         Capsule()
                             .strokeBorder(.white.opacity(0.22), lineWidth: 0.75)
                     )
-                    .shadow(color: .black.opacity(0.22), radius: 10, y: 4)
             case .circle:
                 content
                     .background(.regularMaterial, in: Circle())
@@ -56,7 +54,6 @@ struct GlassCardModifier: ViewModifier {
                         Circle()
                             .strokeBorder(.white.opacity(0.22), lineWidth: 0.75)
                     )
-                    .shadow(color: .black.opacity(0.22), radius: 10, y: 4)
             }
         }
     }

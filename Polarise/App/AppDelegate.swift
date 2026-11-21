@@ -33,19 +33,61 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         if let button = statusItem.button {
-            button.image = NSImage(systemSymbolName: "circle.lefthalf.filled", accessibilityDescription: "Polarise")
             button.action = #selector(handleMouseClick(_:))
             button.target = self
             button.sendAction(on: [.leftMouseUp, .rightMouseUp])
         }
+        overlayManager.onOverlayStateChange = { [weak self] isEnabled in
+            self?.updateStatusItemIcon(isEnabled: isEnabled)
+        }
+        updateStatusItemIcon(isEnabled: overlayManager.isOverlayEnabled)
         configureHotkeys()
     }
 
     func flashStatusItem() {
         guard let button = statusItem.button else { return }
         button.contentTintColor = .systemYellow
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.18) { [weak button] in
-            button?.contentTintColor = nil
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.18) { [weak self] in
+            guard let self else { return }
+            self.updateStatusItemIcon(isEnabled: self.overlayManager.isOverlayEnabled)
+        }
+    }
+
+    private func updateStatusItemIcon(isEnabled: Bool) {
+        guard let button = statusItem?.button else { return }
+        if isEnabled {
+            let iconSize = NSSize(width: 18, height: 18)
+            let image = NSImage(size: iconSize, flipped: false) { rect in
+                NSGraphicsContext.saveGraphicsState()
+
+                let shadow = NSShadow()
+                shadow.shadowColor = NSColor.black.withAlphaComponent(0.42)
+                shadow.shadowBlurRadius = 3
+                shadow.shadowOffset = NSSize(width: 0, height: -1)
+                shadow.set()
+                NSColor.black.withAlphaComponent(0.16).setFill()
+                NSBezierPath(ovalIn: rect.insetBy(dx: 1.5, dy: 1.5)).fill()
+
+                NSGraphicsContext.restoreGraphicsState()
+
+                let beadRect = rect.insetBy(dx: 3.5, dy: 3.5)
+                NSColor.black.setFill()
+                NSBezierPath(ovalIn: beadRect).fill()
+//                NSColor.white.withAlphaComponent(0.82).setStroke()
+//                let outline = NSBezierPath(ovalIn: beadRect.insetBy(dx: 0.25, dy: 0.25))
+//                outline.lineWidth = 0.7
+//                outline.stroke()
+                return true
+            }
+            image.isTemplate = false
+            image.accessibilityDescription = "Polarise On"
+            button.image = image
+            button.contentTintColor = nil
+        } else {
+            let image = NSImage(systemSymbolName: "circle", accessibilityDescription: "Polarise Off")
+            image?.isTemplate = true
+            button.image = image
+            button.contentTintColor = nil
         }
     }
 

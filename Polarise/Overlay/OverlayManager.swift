@@ -11,9 +11,12 @@ import Combine
 import ApplicationServices
 
 final class OverlayManager: ObservableObject {
+    var onOverlayStateChange: ((Bool) -> Void)?
+
     @Published var isOverlayEnabled: Bool = false {
         didSet {
             NSLog("[OverlayManager] Overlay enabled state changed: %@", isOverlayEnabled ? "on" : "off")
+            onOverlayStateChange?(isOverlayEnabled)
             if isOverlayEnabled {
                 rebuildWindows()
             } else {
